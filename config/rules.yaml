@@ -1,0 +1,54 @@
+version: 1
+organize_root: "~/Organized"
+
+rules:
+  academics:
+    priority: 10
+    destination: Academics
+    match_any:
+      - type: extension
+        values: [pdf, docx, pptx]
+        confidence: 0.7
+      - type: keyword_in_name
+        values: [lecture, assignment, syllabus, notes, homework]
+        confidence: 0.8
+      - type: path_contains
+        values: [Semester, Coursework, Lectures]
+        confidence: 0.75
+
+  images:
+    priority: 20
+    destination: Images
+    match_any:
+      - type: extension
+        values: [jpg, jpeg, png, heic, gif, webp, raw]
+        confidence: 0.95
+
+  archives:
+    priority: 15
+    destination: Archives
+    match_any:
+      - type: extension
+        values: [zip, tar, gz, rar, 7z]
+        confidence: 0.9
+
+  projects:
+    priority: 25
+    destination: Projects
+    match_any:
+      - type: path_contains
+        values: [".git", "package.json", "requirements.txt", "pyproject.toml"]
+        confidence: 0.9
+
+  documents:
+    priority: 5
+    destination: Documents
+    match_any:
+      - type: extension
+        values: [pdf, docx, txt, md, odt]
+        confidence: 0.5   # lowest priority: catch-all fallback
+
+defaults:
+  unmatched_category: uncategorized
+  unmatched_destination: _Uncategorized
+  min_confidence_for_proposal: 0.5
