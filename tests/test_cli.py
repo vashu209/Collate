@@ -76,8 +76,9 @@ def test_cli_full_workflow(cli_env):
     # 2. Duplicates
     dup_res = runner.invoke(app, ["duplicates", "--db", db_path])
     assert dup_res.exit_code == 0
-    assert "photo.jpg" in dup_res.output
-    assert "photo_dup.jpg" in dup_res.output
+    normalized_output = dup_res.output.replace("\n", "").replace(" ", "").replace("│", "")
+    assert "photo.jpg" in normalized_output
+    assert "photo_dup.jpg" in normalized_output
 
     # 3. Propose
     prop_res = runner.invoke(app, ["propose", "--config", rules_file, "--db", db_path])
