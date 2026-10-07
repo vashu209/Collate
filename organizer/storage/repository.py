@@ -2,7 +2,6 @@
 
 from pathlib import Path
 import sqlite3
-import time
 from typing import Dict, List, Optional, Union
 
 from organizer.rules.models import (

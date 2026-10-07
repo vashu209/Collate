@@ -2,7 +2,7 @@
 
 import hashlib
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Union
 
 from organizer.rules.models import FileRecord
 

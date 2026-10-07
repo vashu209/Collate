@@ -31,6 +31,10 @@ def approve(
     On accept, execute move immediately and log operation. On reject, record feedback.
     --dry-run previews without writing or moving anything.
     """
+    if all_proposals and interactive:
+        console.print("[red]Error: Cannot use both --all and --interactive.[/]")
+        raise typer.Exit(1)
+
     repo = Repository(db)
     pending = repo.get_pending_proposals()
 
@@ -120,6 +124,8 @@ def approve(
                 console.print(f"[red][FAIL] Move failed:[/] {err}\n")
 
         elif choice == "n":
+            if not p.id:
+                return
             repo.update_proposal_status(p.id, "rejected")
             recorder.record_decision(p, action="rejected")
             rejected_count += 1

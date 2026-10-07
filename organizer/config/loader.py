@@ -1,7 +1,7 @@
 """Loads and validates the YAML rules configuration file."""
 
 from pathlib import Path
-from typing import Any, Dict, Union
+from typing import Dict, Union
 import yaml
 
 from organizer.config.schema import (

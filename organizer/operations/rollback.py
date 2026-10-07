@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import time
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 from organizer.dedup.hasher import compute_file_hash
 from organizer.rules.models import Operation

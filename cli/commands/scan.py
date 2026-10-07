@@ -3,7 +3,6 @@
 from pathlib import Path
 import typer
 from rich.console import Console
-from rich.table import Table
 
 from organizer.scanning.scanner import scan_directory
 from organizer.storage.repository import Repository

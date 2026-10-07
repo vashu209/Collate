@@ -1,7 +1,6 @@
 """Metadata extraction utilities including size, timestamps, and magic bytes."""
 
 import mimetypes
-import os
 from pathlib import Path
 from typing import Optional, Tuple, Union
 import filetype
