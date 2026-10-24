@@ -1,6 +1,10 @@
 """Rules package containing models and evaluation engine."""
 
-from organizer.rules.engine import RuleBasedClassifier, RuleEngine
+from organizer.rules.engine import (
+    RuleBasedClassifier,
+    RuleEngine,
+    compute_destination_path,
+)
 from organizer.rules.models import (
     Condition,
     FeedbackRecord,
@@ -21,4 +25,5 @@ __all__ = [
     "RuleBasedClassifier",
     "RuleEngine",
     "RuleMatch",
+    "compute_destination_path",
 ]

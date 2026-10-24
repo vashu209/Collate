@@ -12,7 +12,7 @@ console = Console()
 
 def scan(
     path: str = typer.Argument(..., help="Path of the directory to scan"),
-    recursive: bool = typer.Option(True, "--recursive/--no-recursive", help="Whether to scan subdirectories recursively"),
+    recursive: bool = typer.Option(False, "--recursive/--no-recursive", help="Whether to scan subdirectories recursively (default: non-recursive)"),
     db: str = typer.Option("data/organizer.db", "--db", help="Path to SQLite database file"),
 ) -> None:
     """Walk <path>, extract metadata and SHA-256 checksums, and store file records in SQLite."""
@@ -22,6 +22,7 @@ def scan(
         raise typer.Exit(code=1)
 
     repo = Repository(db)
+    repo.record_scan_root(str(target_dir))
     console.print(f"[bold cyan]Scanning directory:[/] {target_dir}")
     console.print(f"Mode: {'Recursive' if recursive else 'Non-recursive'} | Database: {db}")
 

@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 def scan_directory(
     root_path: Union[str, Path],
-    recursive: bool = True,
+    recursive: bool = False,
     skip_symlinks: bool = True,
     compute_hashes: bool = True,
 ) -> Generator[FileRecord, None, None]:
@@ -22,7 +22,7 @@ def scan_directory(
     
     Args:
         root_path: Directory path to scan.
-        recursive: If True, recursively scan subdirectories.
+        recursive: If True, recursively scan subdirectories (default False).
         skip_symlinks: If True, do not traverse symlinks or include symlinked files.
         compute_hashes: If True, compute SHA-256 checksum for each file.
         

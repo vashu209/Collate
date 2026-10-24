@@ -59,7 +59,8 @@ def test_scanner_non_recursive(tmp_path: Path):
     file2 = sub_dir / "file2.txt"
     file2.write_text("nested", encoding="utf-8")
 
-    records = list(scan_directory(tmp_path, recursive=False))
+    # Call scan_directory without recursive flag to verify default is non-recursive
+    records = list(scan_directory(tmp_path))
     assert len(records) == 1
     assert records[0].filename == "file1.txt"
 

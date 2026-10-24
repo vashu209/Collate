@@ -18,6 +18,9 @@ def propose(
     min_confidence: Optional[float] = typer.Option(
         None, "--min-confidence", help="Minimum confidence threshold required for matching rules"
     ),
+    organize_root: Optional[str] = typer.Option(
+        None, "--organize-root", help="Override base directory for organized folders (defaults to scan root)"
+    ),
     db: str = typer.Option("data/organizer.db", "--db", help="Path to SQLite database file"),
 ) -> None:
     """Run the rule engine over scanned files with no pending proposal and store proposals in SQLite."""
@@ -31,7 +34,11 @@ def propose(
         rules_cfg.defaults.min_confidence_for_proposal = min_confidence
 
     repo = Repository(db)
-    classifier = RuleBasedClassifier(rules_cfg)
+
+    # Determine base directory: explicit option -> latest scan root -> per-file parent
+    target_base = organize_root or repo.get_latest_scan_root()
+
+    classifier = RuleBasedClassifier(rules_cfg, organize_root=target_base)
 
     unproposed_files = repo.get_files_without_pending_proposals()
     if not unproposed_files:
@@ -39,6 +46,8 @@ def propose(
         return
 
     console.print(f"[bold cyan]Evaluating rules for {len(unproposed_files)} file(s)...[/]")
+    if target_base:
+        console.print(f"[dim]Organizing into folder:[/] {target_base}")
 
     category_counts: Counter[str] = Counter()
     proposals_saved = 0
@@ -58,4 +67,4 @@ def propose(
 
     console.print(table)
     console.print(f"[bold green]Saved {proposals_saved} pending proposal(s) into database.[/]")
-    console.print("Run [bold cyan]organizer approve[/] to review and execute moves.")
+    console.print("Run [bold cyan]organizer review[/] to review and execute moves.")

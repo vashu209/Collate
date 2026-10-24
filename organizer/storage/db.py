@@ -67,6 +67,14 @@ CREATE TABLE IF NOT EXISTS feedback (
 );
 
 CREATE INDEX IF NOT EXISTS idx_feedback_action ON feedback(action);
+
+CREATE TABLE IF NOT EXISTS scan_roots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    path TEXT NOT NULL,
+    scanned_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_scan_roots_scanned_at ON scan_roots(scanned_at);
 """
 
 

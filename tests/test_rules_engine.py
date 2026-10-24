@@ -11,7 +11,11 @@ from organizer.config.schema import (
     RuleConfig,
     RulesConfig,
 )
-from organizer.rules.engine import RuleBasedClassifier, RuleEngine
+from organizer.rules.engine import (
+    RuleBasedClassifier,
+    RuleEngine,
+    compute_destination_path,
+)
 from organizer.rules.models import FileRecord
 
 
@@ -175,3 +179,39 @@ def test_invalid_confidence_range():
     """Verify validation error when confidence is outside [0.0, 1.0]."""
     with pytest.raises(ConfigValidationError):
         ConditionConfig(type="extension", values=["pdf"], confidence=1.5)
+
+
+def test_compute_destination_path_category_not_exists(tmp_path):
+    """When category folder does not exist, file is placed directly in category folder."""
+    dest = compute_destination_path(tmp_path, "Academics", "notes.pdf", today_str="2026-10-24")
+    assert dest == tmp_path / "Academics" / "notes.pdf"
+
+
+def test_compute_destination_path_category_exists(tmp_path):
+    """When category folder already exists, file is placed in date-stamped subfolder."""
+    category_dir = tmp_path / "Academics"
+    category_dir.mkdir()
+    dest = compute_destination_path(tmp_path, "Academics", "notes.pdf", today_str="2026-10-24")
+    assert dest == tmp_path / "Academics" / "2026-10-24" / "notes.pdf"
+
+
+def test_rule_engine_date_stamped_destination(sample_config, tmp_path):
+    """Verify RuleBasedClassifier dynamically generates date-stamped paths if category exists."""
+    engine = RuleBasedClassifier(sample_config, organize_root=tmp_path, today_str="2026-10-24")
+    record = FileRecord(
+        path=str(tmp_path / "lecture.pdf"),
+        filename="lecture.pdf",
+        extension="pdf",
+        size_bytes=100,
+        created_at=0.0,
+        modified_at=0.0,
+    )
+
+    # 1. Before Academics folder exists -> directly in Academics/lecture.pdf
+    proposal1 = engine.classify(record)
+    assert proposal1.proposed_destination == str(tmp_path / "Academics" / "lecture.pdf")
+
+    # 2. After Academics folder exists -> in Academics/2026-10-24/lecture.pdf
+    (tmp_path / "Academics").mkdir()
+    proposal2 = engine.classify(record)
+    assert proposal2.proposed_destination == str(tmp_path / "Academics" / "2026-10-24" / "lecture.pdf")

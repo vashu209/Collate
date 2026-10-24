@@ -119,6 +119,21 @@ class Repository:
                 by_hash.setdefault(r.sha256, []).append(r)
         return {h: group for h, group in by_hash.items() if len(group) > 1}
 
+    def record_scan_root(self, path: str) -> None:
+        """Record a scan root path with timestamp."""
+        sql = "INSERT INTO scan_roots (path, scanned_at) VALUES (?, ?);"
+        with self._get_conn() as conn:
+            conn.execute(sql, (str(Path(path).expanduser().resolve()), time.time()))
+
+    def get_latest_scan_root(self) -> Optional[str]:
+        """Fetch the most recently scanned root directory path."""
+        sql = "SELECT path FROM scan_roots ORDER BY scanned_at DESC, id DESC LIMIT 1;"
+        with self._get_conn() as conn:
+            row = conn.execute(sql).fetchone()
+            if row:
+                return row["path"]
+            return None
+
     def _row_to_file_record(self, row: sqlite3.Row) -> FileRecord:
         return FileRecord(
             id=row["id"],
@@ -165,12 +180,22 @@ class Repository:
             proposal.id = proposal_id
             return proposal_id
 
-    def get_pending_proposals(self) -> List[Proposal]:
-        """Fetch all proposals in 'pending' status."""
-        sql = "SELECT * FROM proposals WHERE status = 'pending' ORDER BY id ASC;"
+    def get_pending_proposals(self, category: Optional[str] = None) -> List[Proposal]:
+        """Fetch all proposals in 'pending' status, optionally filtered by category."""
+        if category:
+            sql = "SELECT * FROM proposals WHERE status = 'pending' AND LOWER(proposed_category) = LOWER(?) ORDER BY id ASC;"
+            params = (category,)
+        else:
+            sql = "SELECT * FROM proposals WHERE status = 'pending' ORDER BY id ASC;"
+            params = ()
+
         with self._get_conn() as conn:
-            rows = conn.execute(sql).fetchall()
+            rows = conn.execute(sql, params).fetchall()
             return [self._row_to_proposal(r) for r in rows]
+
+    def get_pending_proposals_filtered(self, category: Optional[str] = None) -> List[Proposal]:
+        """Alias for get_pending_proposals with optional category filter."""
+        return self.get_pending_proposals(category=category)
 
     def get_proposal_by_id(self, proposal_id: int) -> Optional[Proposal]:
         """Fetch a single proposal by ID."""
