@@ -12,7 +12,6 @@ from organizer.ai.base import Classifier, ClassifierUnavailable, ContentExtracto
 from organizer.ai.content_extractor import SimpleContentExtractor
 from organizer.ai.training_store import TrainingStore
 from organizer.config.schema import RulesConfig
-from organizer.rules.engine import compute_destination_path
 from organizer.rules.models import FileRecord, Proposal
 
 logger = logging.getLogger(__name__)
@@ -68,6 +67,8 @@ class EmbeddingClassifier(Classifier):
         self.ml_min_confidence = ml_min_confidence
 
     def classify(self, record: FileRecord) -> Proposal:
+        from organizer.rules.engine import compute_destination_path
+        
         if self.training_store.is_empty():
             raise ClassifierUnavailable(
                 "ml tier has no training data",
@@ -161,6 +162,7 @@ class EmbeddingClassifier(Classifier):
         return Path(record.path).parent
 
     def _fallback(self, record: FileRecord, reason: str) -> Proposal:
+        from organizer.rules.engine import compute_destination_path
         base_dir = self._base_dir(record)
         dest = compute_destination_path(
             base_dir,

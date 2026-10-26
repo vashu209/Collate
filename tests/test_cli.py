@@ -232,7 +232,7 @@ defaults:
 
     # Scan and propose
     runner.invoke(app, ["scan", str(scan_dir), "--db", str(db_path)])
-    runner.invoke(app, ["propose", "--config", str(rules_file), "--db", str(db_path)])
+    runner.invoke(app, ["propose", "--model", "rules", "--config", str(rules_file), "--db", str(db_path)])
 
     today_str = datetime.now().strftime("%Y-%m-%d")
 

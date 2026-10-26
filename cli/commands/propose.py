@@ -1,13 +1,14 @@
-"""CLI command: propose file classifications using the rule engine."""
+"""CLI command: propose file classifications using the selected classifier."""
 
-from collections import Counter
 from typing import Optional
+
 import typer
 from rich.console import Console
 from rich.table import Table
 
+from organizer.ai.base import ClassifierUnavailable
 from organizer.config.loader import load_rules_config
-from organizer.rules.engine import RuleBasedClassifier
+from organizer.propose_service import VALID_MODELS, run_propose
 from organizer.storage.repository import Repository
 
 console = Console()
@@ -21,9 +22,21 @@ def propose(
     organize_root: Optional[str] = typer.Option(
         None, "--organize-root", help="Override base directory for organized folders (defaults to scan root)"
     ),
+    model: str = typer.Option(
+        "ml", "--model", help=f"Classifier backend: {' | '.join(VALID_MODELS)}"
+    ),
+    no_fallback: bool = typer.Option(
+        False, "--no-fallback", help="Fail hard if the requested model is unavailable (no fallback to rules)"
+    ),
     db: str = typer.Option("data/organizer.db", "--db", help="Path to SQLite database file"),
 ) -> None:
-    """Run the rule engine over scanned files with no pending proposal and store proposals in SQLite."""
+    """Run the selected classifier over scanned files and store proposals in SQLite."""
+    if model not in VALID_MODELS:
+        console.print(
+            f"[bold red]Error:[/] invalid --model {model!r}. Valid: {', '.join(VALID_MODELS)}."
+        )
+        raise typer.Exit(code=1)
+
     try:
         rules_cfg = load_rules_config(config_file)
     except Exception as e:
@@ -35,36 +48,58 @@ def propose(
 
     repo = Repository(db)
 
-    # Determine base directory: explicit option -> latest scan root -> per-file parent
-    target_base = organize_root or repo.get_latest_scan_root()
+    try:
+        result = run_propose(
+            repo,
+            rules_cfg,
+            model=model,
+            organize_root=organize_root,
+            no_fallback=no_fallback,
+        )
+    except ClassifierUnavailable as e:
+        console.print(f"[bold red]Error:[/] {e}")
+        if getattr(e, "hint", None):
+            console.print(f"[dim]{e.hint}[/]")
+        raise typer.Exit(code=1)
+    except RuntimeError as e:
+        console.print(f"[bold red]Error:[/] {e}")
+        raise typer.Exit(code=1)
+    except ValueError as e:
+        console.print(f"[bold red]Error:[/] {e}")
+        raise typer.Exit(code=1)
 
-    classifier = RuleBasedClassifier(rules_cfg, organize_root=target_base)
+    if result.fell_back:
+        console.print(
+            f"[yellow]--model {model} unavailable ({result.fallback_reason}); "
+            f"fell back to {result.backend}.[/]"
+        )
 
-    unproposed_files = repo.get_files_without_pending_proposals()
-    if not unproposed_files:
-        console.print("[yellow]No unproposed files found. Run 'organizer scan <path>' first or all files already have pending proposals.[/]")
+    if result.proposals_saved == 0:
+        console.print(
+            "[yellow]No unproposed files found. Run 'organizer scan <path>' first "
+            "or all files already have pending proposals.[/]"
+        )
         return
 
-    console.print(f"[bold cyan]Evaluating rules for {len(unproposed_files)} file(s)...[/]")
-    if target_base:
-        console.print(f"[dim]Organizing into folder:[/] {target_base}")
+    if result.bootstrapped_examples:
+        console.print(
+            f"[dim]Cold start: bootstrapped {result.bootstrapped_examples} "
+            f"pseudo-labeled examples from rules.[/]"
+        )
 
-    category_counts: Counter[str] = Counter()
-    proposals_saved = 0
+    console.print(
+        f"[bold cyan]Evaluating with backend [bold]{result.backend}[/]...[/]"
+    )
 
-    for file_record in unproposed_files:
-        proposal = classifier.classify(file_record)
-        repo.save_proposal(proposal)
-        category_counts[proposal.proposed_category] += 1
-        proposals_saved += 1
-
-    table = Table(title=f"Generated Proposals ({proposals_saved} files)")
+    table = Table(
+        title=f"Generated Proposals ({result.proposals_saved} files, backend={result.backend})"
+    )
     table.add_column("Proposed Category", style="cyan", no_wrap=True)
     table.add_column("Count", justify="right", style="green")
 
-    for cat, count in category_counts.most_common():
+    for cat, count in result.category_counts.most_common():
         table.add_row(cat, str(count))
 
     console.print(table)
-    console.print(f"[bold green]Saved {proposals_saved} pending proposal(s) into database.[/]")
+    console.print(f"[bold green]Saved {result.proposals_saved} pending proposal(s) into database.[/]")
     console.print("Run [bold cyan]organizer review[/] to review and execute moves.")
