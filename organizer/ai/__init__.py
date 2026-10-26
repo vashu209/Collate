@@ -2,7 +2,7 @@
 
 from organizer.ai.base import Classifier, ContentExtractor, Embedder
 from organizer.ai.classifier import AIClassifier
-from organizer.ai.content_extractor import AIContentExtractor
+from organizer.ai.content_extractor import SimpleContentExtractor
 from organizer.ai.embedder import AIEmbedder
 
 __all__ = [
@@ -10,6 +10,6 @@ __all__ = [
     "ContentExtractor",
     "Embedder",
     "AIClassifier",
-    "AIContentExtractor",
+    "SimpleContentExtractor",
     "AIEmbedder",
 ]
