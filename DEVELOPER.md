@@ -404,3 +404,24 @@ To introduce a multimodal LLM or embedding-based classifier (e.g. Gemini API, se
    - `organizer.operations.rollback.RollbackManager`: Operates strictly on logged `Operation` records.
    - `organizer.feedback.recorder.FeedbackRecorder`: Collects human feedback (`approved`, `rejected`, `modified`) into the SQLite `feedback` table, which can now be queried directly to fine-tune or few-shot prompt the Phase 2 AI model.
    - `cli/commands/approve.py`: Displays proposals and collects user input with no knowledge of whether the proposal was produced by a regex rule or a 100B-parameter neural network.
+
+## Test Data
+### Basic — 120 files in ./testdata
+```bash
+python scripts/generate_test_data.py
+```
+### Deterministic (same layout every run — great for tests)
+```bash
+python scripts/generate_test_data.py --seed 42
+```
+### Bigger fixture, deeper nesting, with duplicate groups
+```bash
+python scripts/generate_test_data.py -n 500 --max-depth 6 --dupes 5 -o /tmp/bigfixture --clean
+```
+### Then drive the organizer against it
+```bash
+organizer scan testdata
+organizer propose
+organizer duplicates
+organizer approve --dry-run
+```
