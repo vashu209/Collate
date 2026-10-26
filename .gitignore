@@ -39,6 +39,10 @@ data/
 *.db-wal
 *.db-shm
 
+# Models
+models/
+*.onnx
+
 # IDE & OS
 .vscode/
 .idea/
