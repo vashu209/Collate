@@ -343,6 +343,26 @@ class Repository:
             feedback.id = feedback_id
             return feedback_id
 
+    def get_feedback(self) -> List[FeedbackRecord]:
+        """Fetch all feedback rows, most recent first."""
+        sql = "SELECT * FROM feedback ORDER BY timestamp DESC;"
+        with self._get_conn() as conn:
+            rows = conn.execute(sql).fetchall()
+            return [self._row_to_feedback(r) for r in rows]
+
+    def _row_to_feedback(self, row: sqlite3.Row) -> FeedbackRecord:
+        return FeedbackRecord(
+            id=row["id"],
+            file_id=row["file_id"],
+            source_path=row["source_path"],
+            proposed_category=row["proposed_category"],
+            proposed_destination=row["proposed_destination"],
+            actual_category=row["actual_category"],
+            actual_destination=row["actual_destination"],
+            action=row["action"],
+            timestamp=row["timestamp"],
+        )
+
     # -------------------------------------------------------------------------
     # Status & Summary
     # -------------------------------------------------------------------------

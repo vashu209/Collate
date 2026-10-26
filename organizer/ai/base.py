@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Sequence, Union
+from typing import TYPE_CHECKING, Sequence, Union, List
 
 if TYPE_CHECKING:
     from organizer.rules.models import FileRecord, Proposal
@@ -40,6 +40,13 @@ class Embedder(ABC):
             Vector embedding as a sequence of floats.
         """
         pass
+
+    def encode_batch(self, texts: List[str]) -> List[List[float]]:
+        """Batch embedding helper. Default loops single calls.
+
+        Concrete implementations may override with a faster batched path.
+        """
+        return [list(self.generate_embedding(t)) for t in texts]
 
 
 class ClassifierUnavailable(Exception):
