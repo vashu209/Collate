@@ -1,5 +1,6 @@
 """Thin repository layer providing CRUD operations over SQLite."""
 
+import time
 from pathlib import Path
 import sqlite3
 from typing import Dict, List, Optional, Union
