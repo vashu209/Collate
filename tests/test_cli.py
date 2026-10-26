@@ -81,7 +81,7 @@ def test_cli_full_workflow(cli_env):
     assert "photo_dup.jpg" in normalized_output
 
     # 3. Propose
-    prop_res = runner.invoke(app, ["propose", "--config", rules_file, "--db", db_path])
+    prop_res = runner.invoke(app, ["propose", "--model", "rules", "--config", rules_file, "--db", db_path])
     assert prop_res.exit_code == 0
     assert "Generated Proposals" in prop_res.output
 
@@ -126,7 +126,7 @@ def test_cli_approve_category(cli_env):
     rules_file = str(cli_env["rules_file"])
 
     runner.invoke(app, ["scan", scan_dir, "--db", db_path])
-    runner.invoke(app, ["propose", "--config", rules_file, "--db", db_path])
+    runner.invoke(app, ["propose", "--model", "rules", "--config", rules_file, "--db", db_path])
 
     # Approve only 'academics' category
     res = runner.invoke(app, ["approve", "--approve-category", "academics", "--db", db_path])
@@ -160,7 +160,7 @@ def test_cli_filter_category_and_pagination(cli_env):
     rules_file = str(cli_env["rules_file"])
 
     runner.invoke(app, ["scan", scan_dir, "--db", db_path])
-    runner.invoke(app, ["propose", "--config", rules_file, "--db", db_path])
+    runner.invoke(app, ["propose", "--model", "rules", "--config", rules_file, "--db", db_path])
 
     # Preview with filter-category Academics and page-size 1
     res = runner.invoke(

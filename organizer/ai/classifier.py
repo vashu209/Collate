@@ -44,9 +44,9 @@ class EmbeddingClassifier(Classifier):
         organize_root: Optional[Union[str, Path]] = None,
         today_str: Optional[str] = None,
         extractor: Optional[ContentExtractor] = None,
-        k: int = 5,
-        pseudo_weight: float = 0.4,
-        ml_min_confidence: float = 0.5,
+        k: Optional[int] = None,
+        pseudo_weight: Optional[float] = None,
+        ml_min_confidence: Optional[float] = None,
     ) -> None:
         self.rules_cfg = rules_cfg
         self.embedder = embedder
@@ -62,9 +62,18 @@ class EmbeddingClassifier(Classifier):
             )
         )
         self.today_str = today_str
-        self.k = k
-        self.pseudo_weight = pseudo_weight
-        self.ml_min_confidence = ml_min_confidence
+        # Read tuning from rules_cfg.ml (Stage 7); explicit kwargs win,
+        # then config, then hardcoded fallbacks.
+        ml_cfg = getattr(rules_cfg, "ml", None)
+        self.k = k if k is not None else (ml_cfg.k if ml_cfg else 5)
+        self.pseudo_weight = (
+            pseudo_weight if pseudo_weight is not None
+            else (ml_cfg.pseudo_weight if ml_cfg else 0.4)
+        )
+        self.ml_min_confidence = (
+            ml_min_confidence if ml_min_confidence is not None
+            else (ml_cfg.min_confidence_for_proposal if ml_cfg else 0.55)
+        )
 
     def classify(self, record: FileRecord) -> Proposal:
         from organizer.rules.engine import compute_destination_path

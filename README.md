@@ -7,10 +7,12 @@ relocating files. It guarantees zero data loss through transactional SQLite
 journaling and cryptographic verification.
 
 Classification is driven by a **capability ladder**: multiple backends
-implement the same `Classifier` interface and are selected at runtime.
-Today the default is the deterministic rule engine (Tier 0). A local
-sentence-embedding backend (Tier 1) is in progress; a small local LLM tier
-(Tier 2) and a cloud-API tier (Tier 3) are planned. See
+implement the same `Classifier` interface and are selected at runtime. The
+default backend is a local sentence-embedding classifier (Tier 1, MiniLM-L6-v2
+via ONNX) that learns from your review decisions. It runs on any CPU with no
+GPU required. A deterministic rule engine (Tier 0) is always available as a
+fallback and requires no extra installation. A local LLM tier (Tier 2) and a
+cloud-API tier (Tier 3) are planned. See
 [DEVELOPER.md § Classification Tiers](DEVELOPER.md#classification-tiers-and-development-stages)
 for the full roadmap.
 
@@ -28,6 +30,9 @@ for the full roadmap.
 
 ## Key Features
 
+- **ML-Backed Classification**: Local embeddings learn from your review
+  decisions (accept / reject / edit) and improve over time. No GPU, no API
+  keys, no cloud.
 - **Interactive Review**: Paginated, filterable terminal UI to review,
   approve, edit, skip, or reject proposals before execution.
 - **Bulk Operations**: Approve all, approve by category, approve by display-ID
@@ -55,23 +60,33 @@ cd collate
 pip install -e .
 ```
 
-This registers the global console script `organizer`.
+This registers the global console script `organizer`. The base install
+includes the deterministic rule engine (Tier 0) and works out of the box.
 
-Optional extras:
+### Optional: ML classifier (Tier 1)
+
+The local ML backend needs four dependencies and a one-time model download:
 
 ```bash
-# Needed for the in-progress ML tier (Tier 1)
 pip install -e ".[ml]"
+python scripts/fetch_ml_model.py
+```
 
-# Needed to run the test suite
+The fetch script downloads ~90 MB of quantized MiniLM files from HuggingFace,
+verifies their SHA-256 hashes, and installs them into
+`organizer/ai/models/minilm-l6-v2/`. It is idempotent — safe to re-run.
+
+Once installed, `organizer propose` defaults to `--model ml`. If the model
+files or dependencies are missing, the tool falls back to `rules` with a
+clear message.
+
+### Optional: development
+
+```bash
 pip install -e ".[dev]"
 ```
 
-After installing `[ml]`, fetch the model files once per machine:
-
-```bash
-python scripts/fetch_ml_model.py
-```
+Adds `pytest` for running the test suite.
 
 ---
 
@@ -84,8 +99,10 @@ python scripts/fetch_ml_model.py
    organizer scan ~/Downloads --recursive
    ```
 
-2. **Generate move proposals** — evaluates files against the configured rules
-   (or another backend) and queues proposed destinations:
+2. **Generate move proposals** — runs the ML classifier (or another backend,
+   via `--model`) and queues proposed destinations. On a fresh database with
+   no review history, the ML tier auto-bootstraps from the rules engine so it
+   has something to work with on the first run:
 
    ```bash
    organizer propose
@@ -93,7 +110,7 @@ python scripts/fetch_ml_model.py
 
 3. **Review and approve changes** — paginated interactive UI to approve
    `[y]`, reject `[n]`, edit `[e]`, skip `[s]`, or inspect `[v]` each
-   proposal:
+   proposal. Every decision feeds back into the ML training corpus:
 
    ```bash
    organizer review
@@ -112,12 +129,13 @@ python scripts/fetch_ml_model.py
 `organizer propose` supports multiple classification backends, selected with
 `--model`. The available tiers are:
 
-- **`rules`** (default today) — deterministic, always available. No
-  dependencies beyond the base install.
-- **`ml`** (in progress) — local sentence embeddings (MiniLM-L6-v2 via ONNX,
+- **`ml`** (default) — local sentence embeddings (MiniLM-L6-v2 via ONNX,
   quantized). Install with `pip install 'file-organizer[ml]'` and fetch the
   model with `python scripts/fetch_ml_model.py`. Runs on CPU; no GPU
-  required.
+  required. Learns from your review decisions.
+- **`rules`** — deterministic rule engine. Always available; no extra
+  dependencies beyond the base install. Useful for reproducible categorization
+  or when the ML tier isn't installed.
 - **`llm`** (planned) — local small-LLM classification for ambiguous files.
   Requires a dGPU for acceptable throughput.
 - **`api`** (planned) — cloud LLM classification, opt-in only. Requires an
@@ -128,15 +146,15 @@ a reason. If a requested tier can't run, the tool falls back to `rules`
 automatically unless `--no-fallback` is passed.
 
 See [DEVELOPER.md § Classification Tiers](DEVELOPER.md#classification-tiers-and-development-stages)
-for the full roadmap and the stage-by-stage build plan for Tier 1.
+for the full roadmap.
 
 ---
 
 ## Configuration (`rules.yaml`)
 
 The configuration file (`config/rules.yaml`) defines deterministic
-categorization rules. It is also used by the ML tier to seed its bootstrap
-pseudo-labels on first run.
+categorization rules. The ML tier uses the same rules to seed bootstrap
+pseudo-labels on first run, and an optional `ml:` block tunes its behavior.
 
 ```yaml
 version: 1
@@ -169,6 +187,12 @@ defaults:
   unmatched_category: uncategorized
   unmatched_destination: _Uncategorized
   min_confidence_for_proposal: 0.5
+
+# Optional. If omitted, ML uses the defaults shown here.
+ml:
+  k: 5
+  pseudo_weight: 0.4
+  min_confidence_for_proposal: 0.55
 ```
 
 ### Rule Processing
@@ -179,6 +203,37 @@ defaults:
   highest `priority` wins. On a tie, the highest `confidence` breaks it.
 - **Fallbacks**: Files matching no rules or falling below
   `min_confidence_for_proposal` are routed to `unmatched_destination`.
+
+---
+
+## Tuning the ML tier
+
+The `ml:` block in `rules.yaml` controls the ML classifier's behavior:
+
+- **`k`** (`int`, default `5`) — how many nearest neighbors vote on the
+  category. Higher K = more stable but slower to reflect new decisions;
+  lower K = more reactive but noisier. The default of 5 is the standard for
+  text kNN.
+- **`pseudo_weight`** (`float`, default `0.4`) — how much a rules-derived
+  bootstrap example counts relative to a real user review decision.
+  Concretely, three pseudo-labeled examples (each weighted 0.4) lose to two
+  real approvals (each weighted 1.0) in the vote. Keep it below ~0.7 or ML
+  can't improve over rules as feedback accumulates.
+- **`min_confidence_for_proposal`** (`float`, default `0.55`) — the vote-share
+  threshold below which the file routes to `_Uncategorized`. This is
+  **separate** from `defaults.min_confidence_for_proposal` (which governs the
+  rules tier). The two tiers measure confidence differently — rules confidence
+  is a hand-authored static weight; ML confidence is a measured vote share —
+  and shouldn't share a threshold.
+
+The ML confidence number is the **vote share** of the winning category among
+the top-K neighbors, not the raw similarity of the nearest one. A unanimous
+5/5 vote gives confidence ~1.0 even if the individual similarities are
+moderate; a 3/2 split gives ~0.6 even if the nearest neighbor is very close.
+The top-1 similarity is printed in the rationale as a secondary signal.
+
+See [DEVELOPER.md § Tier 1 tuning and design decisions](DEVELOPER.md#tier-1-tuning-and-design-decisions)
+for the reasoning and how to tune.
 
 ---
 
@@ -197,19 +252,29 @@ organizer scan <path> [--recursive / --no-recursive] [--db PATH]
 
 ### `propose`
 
-Runs the classification backend over scanned files to generate pending move
-proposals.
+Runs the selected classification backend over scanned files to generate
+pending move proposals.
 
 ```bash
-organizer propose [--config PATH] [--min-confidence FLOAT]
-                  [--organize-root PATH] [--db PATH]
+organizer propose [--model {rules|ml|llm|api}]
+                  [--config PATH] [--min-confidence FLOAT]
+                  [--organize-root PATH] [--no-fallback] [--db PATH]
 ```
 
-`--organize-root` overrides the base directory for organized folders. When
-omitted, the most recently scanned root is used.
+- `--model` — backend tier. Default `ml`; falls back to `rules` if the tier
+  is unavailable, unless `--no-fallback` is set.
+- `--config` — path to `rules.yaml` (default: `config/rules.yaml`).
+- `--min-confidence` — overrides `defaults.min_confidence_for_proposal` for
+  the rules tier. The ML tier reads `ml.min_confidence_for_proposal` from the
+  config instead.
+- `--organize-root` — base directory for organized folders. Defaults to the
+  most recently scanned root.
+- `--no-fallback` — fail hard if the requested tier is unavailable, instead
+  of degrading to `rules`.
 
-*(A `--model rules|ml|llm|api` flag lands with Tier 1 Stage 5; today the
-rules engine is the only backend.)*
+On a fresh database with no review history, `--model ml` auto-bootstraps
+from the rules engine: existing files are pseudo-labeled so the ML tier has
+training data, then classified. The bootstrap count is printed.
 
 ### `approve` / `review`
 
@@ -232,6 +297,9 @@ organizer review [--all] [--approve-category CATEGORY] [--approve-range RANGE]
 In the interactive paginated view, commands include `y <id|range>`,
 `n <id|range>`, `e <id>`, `v <id>`, `s <id>`, `sa` (skip page), `sc <category>`,
 `sr <range>`, `b`/`n` (previous/next page), `ps <size>`, and `q` to quit.
+
+Every `[y]` / `[n]` / `[e]` decision is logged to the `feedback` table and
+used as training data for the next `propose --model ml` run.
 
 ### `rollback`
 
@@ -267,9 +335,9 @@ organizer status [--db PATH]
 ## Further Documentation
 
 - **[Developer Guide (DEVELOPER.md)](DEVELOPER.md)** — Architecture, the
-  classification-tier ladder, the stage-by-stage build plan for Tier 1, and
-  the plug-in seam for adding a new classifier backend without touching the
-  CLI, storage, or operations layers.
+  classification-tier ladder, the tuning rationale for the ML tier, the
+  propose-service seam, and the plug-in path for adding a new classifier
+  backend without touching the CLI, storage, or operations layers.
 - **[Test Data Generator](scripts/generate_test_data.py)** — Generate nested
   directory trees with categorized files for local testing. Standard library
   only; no extra installs.

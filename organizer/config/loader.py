@@ -8,6 +8,7 @@ from organizer.config.schema import (
     ConditionConfig,
     ConfigValidationError,
     DefaultsConfig,
+    MLConfig,
     RuleConfig,
     RulesConfig,
 )
@@ -105,10 +106,21 @@ def load_rules_config(config_path: Union[str, Path]) -> RulesConfig:
             destination=str(destination),
             match_any=conditions,
         )
+    
+    # Parse optional ml: tuning block (defaults if absent)
+    raw_ml = raw_data.get("ml", {})
+    if not isinstance(raw_ml, dict):
+        raise ConfigValidationError("'ml' section must be a mapping/dict.")
+    ml_cfg = MLConfig(
+        k=int(raw_ml.get("k", 5)),
+        pseudo_weight=float(raw_ml.get("pseudo_weight", 0.4)),
+        min_confidence_for_proposal=float(raw_ml.get("min_confidence_for_proposal", 0.55)),
+    )
 
     return RulesConfig(
         version=int(version),
         organize_root=str(organize_root),
         rules=rules,
         defaults=defaults,
+        ml=ml_cfg,
     )

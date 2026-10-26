@@ -69,6 +69,25 @@ class DefaultsConfig:
                 f"min_confidence_for_proposal must be between 0.0 and 1.0, got: {self.min_confidence_for_proposal}"
             )
 
+@dataclass
+class MLConfig:
+    """Tuning knobs for Tier 1 (ML classifier). Optional in YAML."""
+    k: int = 5
+    pseudo_weight: float = 0.4
+    min_confidence_for_proposal: float = 0.55
+
+    def __post_init__(self):
+        if self.k < 1:
+            raise ConfigValidationError(f"ml.k must be >= 1, got: {self.k}")
+        if not (0.0 < self.pseudo_weight <= 1.0):
+            raise ConfigValidationError(
+                f"ml.pseudo_weight must be in (0.0, 1.0], got: {self.pseudo_weight}"
+            )
+        if not (0.0 <= self.min_confidence_for_proposal <= 1.0):
+            raise ConfigValidationError(
+                f"ml.min_confidence_for_proposal must be in [0.0, 1.0], "
+                f"got: {self.min_confidence_for_proposal}"
+            )
 
 @dataclass
 class RulesConfig:
@@ -77,3 +96,4 @@ class RulesConfig:
     organize_root: str = "~/Organized"
     rules: Dict[str, RuleConfig] = field(default_factory=dict)
     defaults: DefaultsConfig = field(default_factory=DefaultsConfig)
+    ml: MLConfig = field(default_factory=MLConfig)
