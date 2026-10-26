@@ -19,6 +19,12 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
 ]
+ml = [
+    "onnxruntime>=1.17",
+    "tokenizers>=0.15",
+    "numpy>=1.26",
+    "pypdf>=4.0",
+]
 
 [project.scripts]
 organizer = "cli.main:app"
