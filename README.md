@@ -33,8 +33,15 @@ for the full roadmap.
 - **ML-Backed Classification**: Local embeddings learn from your review
   decisions (accept / reject / edit) and improve over time. No GPU, no API
   keys, no cloud.
-- **Interactive Review**: Paginated, filterable terminal UI to review,
-  approve, edit, skip, or reject proposals before execution.
+- **Local Web UI (React + Vite + TypeScript)**: Modern, high-performance visual
+  interface featuring a virtualized Before/After dual tree (smooth with 10,000+
+  files), tri-state folder checkboxes, counterpart hover highlighting, and
+  keyboard navigation (`Space`, arrows, `Enter`).
+- **Rollback Review**: Visual reversal workspace inspecting completed operations,
+  with automatic conflict warnings (tampered files, occupied source paths) and
+  safe reversal.
+- **Interactive Terminal Review**: Paginated, filterable terminal UI for CLI-only
+  workflows.
 - **Bulk Operations**: Approve all, approve by category, approve by display-ID
   range, or filter to a single category.
 - **Dry Runs**: Preview every pending move without touching the filesystem or
@@ -121,6 +128,82 @@ Adds `pytest` for running the test suite.
    ```bash
    organizer rollback --last 5
    ```
+
+5. **Review in the Local Web UI** — launch the local web server and open
+   the interactive visual review workspace:
+
+   ```bash
+   python -m organizer_api.main
+   ```
+
+   Navigate to `http://127.0.0.1:8000` in your browser. The server binds
+   strictly to `127.0.0.1` and makes zero external network calls.
+
+---
+
+## Local Web UI & REST API
+
+The application includes a decoupled FastAPI service (`organizer_api`) and a
+React + Vite + TypeScript frontend (`frontend/`):
+
+### Features
+- **Dual-Pane Virtualized Tree**: "Before" (source paths) vs "After" (projected
+  destinations), virtualized with `@tanstack/react-virtual` to remain buttery
+  smooth even with 10,000+ files.
+- **Tri-State Checkboxes**: Selecting or deselecting folders cascades
+  instantly to subtrees with full `indeterminate` state support.
+- **Bi-Directional Highlighting**: Hovering or focusing a file highlights its
+  counterpart in the opposite tree.
+- **Interactive Filtering & Sorting**: Filter by category, confidence range,
+  and status; sort by confidence; quick-select presets (e.g., `>80%`, `>50%`).
+- **Safe Execution & Feedback**: All moves execute strictly through `FileMover`
+  (journaled and SHA-256 verified). Decisions are recorded via `FeedbackRecorder`
+  to continuously train the ML classifier. Nothing is ever auto-approved.
+- **Rollback Review**: Inspect completed operations, identify conflicts
+  (missing files, checksum modifications, occupied paths), and safely revert
+  operations.
+- **Keyboard Navigation & Themes**: Dark/Light mode toggle; `Space` to toggle
+  selection, `↑`/`↓` to navigate rows, `←`/`→` to switch panes, and `Enter` to
+  expand/collapse folders.
+
+### Running the Web UI
+
+To start the production server (FastAPI serving the pre-compiled React bundle):
+
+```bash
+python -m organizer_api.main
+```
+
+Then open `http://127.0.0.1:8000`.
+
+To run the frontend in development mode with hot-reloading:
+
+```bash
+# Terminal 1: Start API server
+python -m organizer_api.main
+
+# Terminal 2: Start Vite dev server
+cd frontend
+npm install
+npm run dev
+```
+
+Vite runs at `http://127.0.0.1:5173` and proxies API requests to `http://127.0.0.1:8000`.
+
+### REST API Endpoints
+
+The HTTP layer is a thin wrapper (~20 lines per handler) exposing typed Pydantic
+models:
+
+- `GET /status` — returns file counts, pending proposals, executed operations, and feedback stats.
+- `GET /proposals?status=&category=&min_conf=` — lists proposals with filtering and sorting.
+- `POST /proposals/approve` — approves selected proposal IDs `{ids: [...]}` and moves files via `FileMover`.
+- `POST /proposals/reject` — rejects selected proposal IDs `{ids: [...]}` and logs feedback.
+- `GET /operations?limit=` — lists completed operations with conflict detection.
+- `POST /rollback` — rolls back operations `{operation_id, operation_ids, last_n, all_completed}`.
+- `POST /scan` — triggers background directory scan asynchronously `{path, recursive}`.
+- `POST /propose` — triggers background proposal generation asynchronously `{model, min_confidence, organize_root}`.
+- `GET /tasks/{task_id}` — polls status and progress of background scan/propose jobs.
 
 ---
 

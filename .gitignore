@@ -48,3 +48,7 @@ models/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Frontend
+dist/
+node_modules/

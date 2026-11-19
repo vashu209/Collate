@@ -74,10 +74,52 @@ Autonomous File Organizer/
 │       ├── rollback.py                # Restore files to original paths from operation logs
 │       ├── scan.py                    # Walk directories and populate SQLite catalog
 │       └── status.py                  # Display summary metrics and database status tables
+├── organizer_api/                     # Decoupled HTTP service layer (FastAPI, 127.0.0.1 only)
+│   ├── __init__.py                    # API package marker
+│   ├── app.py                         # FastAPI app factory, CORS, static SPA mounting
+│   ├── config.py                      # Server settings, host, port, DB path overrides
+│   ├── dependencies.py                # Dependency injection for Repository, FileMover, RollbackManager
+│   ├── main.py                        # Uvicorn entrypoint (binds 127.0.0.1 only)
+│   ├── models.py                      # Typed Pydantic schemas for requests, responses, tasks
+│   ├── task_manager.py                # Async background job runner for scan & propose
+│   └── routes/                        # Modular API route controllers
+│       ├── __init__.py                # Routes package marker
+│       ├── operations.py              # GET /operations (with conflict detection), POST /rollback
+│       ├── proposals.py               # GET /proposals, POST /proposals/approve, POST /proposals/reject
+│       ├── status.py                  # GET /status summary statistics
+│       └── tasks.py                   # POST /scan, POST /propose, GET /tasks/{task_id}
+├── frontend/                          # Local Web UI (React + Vite + TypeScript)
+│   ├── package.json                   # Dependencies (@tanstack/react-virtual, lucide-react, react 19)
+│   ├── vite.config.ts                 # Vite bundler config with 127.0.0.1 dev proxy
+│   ├── tsconfig.json                  # TypeScript compiler settings
+│   ├── index.html                     # HTML root shell
+│   ├── dist/                          # Compiled production assets served by FastAPI
+│   └── src/                           # Frontend source code
+│       ├── main.tsx                   # React root entrypoint
+│       ├── App.tsx                    # Top-level view router, filter state, action dispatch
+│       ├── index.css                  # High-density design system with CSS vars for Dark/Light mode
+│       ├── api/
+│       │   └── client.ts              # Typed fetch client calling organizer_api
+│       ├── components/
+│       │   ├── Header.tsx             # Navigation tabs, metrics badges, theme toggle, scan/propose triggers
+│       │   ├── FilterBar.tsx          # Category dropdown, confidence slider, status filter, sort, quick selects
+│       │   ├── VirtualDualTree.tsx    # Synchronized Before/After dual virtual tree
+│       │   ├── TreeRow.tsx            # Row with tri-state checkbox, icon, badges, rationale tooltip
+│       │   ├── RollbackReview.tsx     # Current vs Original tree with live conflict detection
+│       │   ├── ConfirmModal.tsx       # Summary dialog with counts before executing
+│       │   ├── ScanProposeModal.tsx   # Dialog to launch async scan or propose and monitor progress
+│       │   └── EmptyState.tsx         # Loading, error, and empty state cards
+│       ├── hooks/
+│       │   └── useTheme.ts            # Dark/light mode persistence and toggle
+│       ├── types/
+│       │   └── index.ts               # Shared TypeScript models (TreeNode, ProposalItem, OperationItem)
+│       └── utils/
+│           └── tree.ts                # Hierarchical tree builder from flat paths and flattener
 ├── scripts/
 │   ├── generate_test_data.py          # Random nested tree fixture generator
 │   └── fetch_ml_model.py              # Download + verify MiniLM ONNX files
 ├── tests/                             # Test suite (filesystem-isolated with tmp_path)
+│   ├── test_api.py                    # Pytest tests for all organizer_api endpoints using tmp_path DB
 │   ├── test_capabilities.py           # Capability probe tests
 │   ├── test_cli.py                    # End-to-end CLI workflow tests using Typer CliRunner
 │   ├── test_cli_model_flag.py         # --model flag wiring tests
@@ -307,7 +349,7 @@ strict-verified — a corrupted download or upstream repo change fails loudly.
 "propose files with a given backend." It is consumed by:
 
 - `cli/commands/propose.py` (thin wrapper: parse args → call → format)
-- Future UI / HTTP layer (would call the same function, format differently)
+- `organizer_api/routes/tasks.py` (background task runner for web UI)
 - Tests (direct invocation, no CLI runner needed)
 
 This split exists because:
@@ -315,7 +357,7 @@ This split exists because:
 1. **The CLI's propose command has nontrivial logic** (model resolution,
    fallback, cold-start bootstrap) that would otherwise be trapped inside a
    Typer callback. Testable-in-isolation code belongs in the library.
-2. **A future dashboard / HTTP service** will need the same logic. If it lived
+2. **A dashboard / HTTP service** needs the same logic. If it lived
    in `cli/commands/propose.py`, the UI would either call into the CLI module
    (bad coupling) or duplicate the logic (worse — drift).
 3. **The core library is UI-agnostic by design.** Every other module in
@@ -324,8 +366,58 @@ This split exists because:
 
 Everything else in `cli/commands/` is presentation-only (format tables, prompt
 user). `review.py` in particular stays in `cli/` — an interactive terminal UI
-is genuinely CLI-shaped and a future GUI will have its own review flow built
-on `FileMover` + `FeedbackRecorder` + `Repository` directly.
+is genuinely CLI-shaped. The Web UI (`frontend/` + `organizer_api/`) builds its
+own review flow on `FileMover` + `FeedbackRecorder` + `RollbackManager` +
+`Repository` directly.
+
+---
+
+## Web UI & HTTP Architecture (`organizer_api` & `frontend`)
+
+The web UI provides a graphical alternative to the CLI review workflow. It is
+built as two strictly decoupled layers that honor all core safety guarantees:
+
+### 1. The HTTP Layer (`organizer_api`)
+- **FastAPI**: Exposes thin, typed REST endpoints with Pydantic schemas.
+- **Strict Seam Isolation**: `organizer_api` is an external adapter. It imports
+  only public library interfaces (`run_propose`, `Repository`, `FileMover`,
+  `RollbackManager`, `FeedbackRecorder`) and contains zero core organization
+  logic of its own.
+- **Filesystem Safety**: The API never touches the filesystem directly. All
+  moves execute through `FileMover.execute_move` (pre-logged, SHA-256 verified)
+  and all reversals execute through `RollbackManager.rollback_batch`.
+- **No Auto-Approvals**: Every move requires an explicit user selection;
+  unselected proposals remain pending in the database.
+- **Localhost Binding**: Binds exclusively to `127.0.0.1`. No external network
+  requests or telemetry.
+- **Asynchronous Tasks**: Long-running directory scans (`POST /scan`) and
+  proposal generations (`POST /propose`) execute in background worker threads so
+  the HTTP connection remains responsive. Progress is polled via
+  `GET /tasks/{task_id}`.
+
+### 2. The Frontend (`frontend`)
+- **React 19 + TypeScript + Vite**: Built with high-density design patterns,
+  light/dark mode, and full keyboard navigation.
+- **Virtualized Dual Tree**: Both the "Before" (source paths) and "After"
+  (projected destinations) panes build a hierarchical directory tree from flat
+  paths. The tree is flattened into a visible row array and rendered via
+  `@tanstack/react-virtual`, maintaining smooth 60fps scrolling even with
+  10,000+ files.
+- **Tri-State Checkboxes**: Folders maintain `checked`, `unchecked`, and
+  `indeterminate` states by computing the intersection of selected proposal IDs
+  with each folder's subtree IDs. Toggling a folder performs an instant $O(K)$
+  set operation.
+- **Bi-Directional Highlight Synchronization**: Hovering or clicking a file node
+  in either pane highlights its counterpart in the other pane.
+- **Rollback Review & Conflict Detection**: Shows files at their current
+  destination versus their original restoration path. Before allowing rollback,
+  the API inspects files on disk (read-only): if a destination file was modified
+  since the move (hash mismatch), or if the original source path is now occupied
+  by another file, the node is flagged with a warning and selection is disabled.
+- **Learning Loop**: Every approval and rejection submitted through the UI is
+  saved to the SQLite `feedback` table via `FeedbackRecorder`, directly
+  training the Tier 1 ML embedding classifier without needing a separate
+  training run.
 
 ---
 
@@ -445,10 +537,28 @@ of type "Embedder | None"`. It's never a runtime error — the fake works fine
 - **`cli/commands/rollback.py`**: CLI handler for reversing move operations using transaction logs.
 - **`cli/commands/duplicates.py`**: CLI handler for discovering and displaying exact duplicates.
 - **`cli/commands/status.py`**: CLI handler for rendering system-wide health and metric tables.
+- **`organizer_api/`**: Decoupled HTTP presentation and API adapter package built with FastAPI (127.0.0.1 binding only).
+- **`organizer_api/app.py`**: FastAPI application factory configuring CORS, routers, and static React SPA mounting.
+- **`organizer_api/config.py`**: Server configuration reading host, port, DB path, and rules path from environment.
+- **`organizer_api/dependencies.py`**: FastAPI dependency injection providing `Repository`, `FileMover`, `RollbackManager`, and `FeedbackRecorder`.
+- **`organizer_api/main.py`**: CLI entrypoint running Uvicorn server bound strictly to localhost.
+- **`organizer_api/models.py`**: Pydantic dataclass schemas for request payloads, typed responses, and background tasks.
+- **`organizer_api/task_manager.py`**: Threaded background job manager for non-blocking asynchronous scan and propose jobs.
+- **`organizer_api/routes/proposals.py`**: API handlers for proposal querying, explicit approval moves via `FileMover`, and rejection feedback.
+- **`organizer_api/routes/operations.py`**: API handlers for operation logs with live disk conflict inspection and rollback execution.
+- **`organizer_api/routes/status.py`**: API handler returning system-wide counts and latest scan root.
+- **`organizer_api/routes/tasks.py`**: Async task triggers and polling endpoints for `/scan`, `/propose`, and `/tasks/{id}`.
+- **`frontend/`**: Modern React 19 + TypeScript + Vite web application for visual proposal and rollback review.
+- **`frontend/src/components/VirtualDualTree.tsx`**: High-performance dual-pane Before/After tree virtualized with `@tanstack/react-virtual`.
+- **`frontend/src/components/TreeRow.tsx`**: Virtual tree row with tri-state checkboxes, counterpart highlight sync, and tooltip rationales.
+- **`frontend/src/components/FilterBar.tsx`**: Category, confidence, and status filters, confidence sort, and quick selection controls.
+- **`frontend/src/components/RollbackReview.tsx`**: Two-pane rollback review workspace with live conflict warnings for modified/occupied files.
+- **`frontend/src/components/ConfirmModal.tsx`**: Execution confirmation modal showing operation counts and category breakdown before disk changes.
+- **`frontend/src/utils/tree.ts`**: Builds nested directory trees from flat paths and flattens expanded nodes for virtualization.
 - **`config/rules.yaml`**: Declarative rule specification + optional `ml:` tuning block (k, pseudo_weight, threshold).
 - **`scripts/generate_test_data.py`**: Fixture generator producing nested dirs + categorized files for testing.
 - **`scripts/fetch_ml_model.py`**: Downloads and SHA-256-verifies MiniLM ONNX files for Tier 1.
-- **`tests/`**: Pytest suite: unit (capabilities, registry, embedder, extractor, classifier, training store, rules), operations, propose service, and CLI flows.
+- **`tests/`**: Pytest suite: unit (capabilities, registry, embedder, extractor, classifier, training store, rules), operations, propose service, CLI flows, and FastAPI endpoints (`test_api.py`).
 - **`pyproject.toml`**: Packaging configuration declaring console scripts, dependencies, and `[dev]`/`[ml]` extras.
 
 ---
