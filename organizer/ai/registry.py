@@ -13,6 +13,7 @@ from organizer.ai.base import Classifier, ClassifierUnavailable
 from organizer.ai.capabilities import Capabilities, detect_capabilities
 from organizer.config.schema import RulesConfig
 from organizer.rules.engine import RuleBasedClassifier
+from organizer.ai.training_store import TrainingStore
 
 
 # Register tiers here. Each entry is a lazy factory: it is only called when
@@ -40,6 +41,7 @@ def _build_ml(
     *,
     organize_root: Optional[Union[str, Path]] = None,
     today_str: Optional[str] = None,
+    training_store: Optional[TrainingStore] = None,
     **_ignored,
 ) -> Classifier:
     # Import here so that a missing onnxruntime/tokenizers only fails when
@@ -57,7 +59,7 @@ def _build_ml(
         ) from e
 
     embedder = AIEmbedder()
-    store = TrainingStore()
+    store = training_store if training_store is not None else TrainingStore()
     return EmbeddingClassifier(
         rules_cfg,
         embedder,

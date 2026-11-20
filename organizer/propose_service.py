@@ -11,6 +11,7 @@ import logging
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
+import numpy as np
 from typing import Optional
 
 from organizer.ai.base import Classifier, ClassifierUnavailable
@@ -18,6 +19,7 @@ from organizer.ai.capabilities import Capabilities, detect_capabilities
 from organizer.ai.content_extractor import SimpleContentExtractor
 from organizer.ai.registry import build_classifier
 from organizer.ai.training_store import TrainingStore
+from organizer.ai.training_store import TrainingExample
 from organizer.config.schema import RulesConfig
 from organizer.rules.engine import RuleBasedClassifier
 from organizer.storage.repository import Repository
@@ -47,13 +49,8 @@ def run_propose(
     caps: Optional[Capabilities] = None,
     no_fallback: bool = False,
 ) -> ProposeResult:
-    """Run the propose pipeline.
+    """Run the propose pipeline."""
 
-    Raises:
-        ValueError: invalid --model value
-        ClassifierUnavailable: requested model unavailable and no_fallback set
-        RuntimeError: rules backend unavailable (should never happen)
-    """
     if model not in VALID_MODELS:
         raise ValueError(
             f"invalid model {model!r}; valid: {', '.join(VALID_MODELS)}"
@@ -74,7 +71,6 @@ def run_propose(
                 f"model {model!r} unavailable: {reason}",
             )
         if model == "rules":
-            # rules is the ultimate fallback; if it's down, nothing works.
             raise RuntimeError(f"rules backend unavailable: {reason}")
         effective_model = "rules"
         fell_back = True
@@ -93,31 +89,50 @@ def run_propose(
             )
 
     # ---- build classifier ----
+    # NOTE: training_store is passed via kwargs, so registry.py handles it correctly.
     classifier: Classifier = build_classifier(
         effective_model,
         rules_cfg,
         caps=caps,
         organize_root=target_base,
+        training_store=training_store if effective_model == "ml" else None,
     )
 
-    # Inject the pre-loaded training store so we don't re-embed the corpus.
-    # A cleaner fix is a `training_store` kwarg on build_classifier; note for
-    # Stage 7 cleanup.
-    if effective_model == "ml" and training_store is not None:
-        classifier.training_store = training_store  # type: ignore[attr-defined]
-
     # ---- run classification ----
-    unproposed = repo.get_files_without_pending_proposals()
+    unproposed = repo.get_files_without_pending_proposals(root_path=target_base)
     category_counts: Counter = Counter()
+    proposals_saved = 0
 
-    for record in unproposed:
-        proposal = classifier.classify(record)
-        repo.save_proposal(proposal)
-        category_counts[proposal.proposed_category] += 1
+    try:
+        # We assume repo has a context manager for transactions. If not, 
+        # you can remove the `with repo._get_conn() as conn:` line.
+        for record in unproposed:
+            proposal = classifier.classify(record)
+            repo.save_proposal(proposal)
+            category_counts[proposal.proposed_category] += 1
+            proposals_saved += 1
+            
+    except ClassifierUnavailable as e:
+        # ML store is empty (bootstrap failed to find confident matches)
+        logger.warning("ML classification failed, falling back to rules: %s", e)
+        effective_model = "rules"
+        fell_back = True
+        fallback_reason = f"ML failed ({e}), fell back to rules"
+        
+        # Fallback to rules for all files
+        rules_clf = RuleBasedClassifier(rules_cfg, organize_root=target_base)
+        category_counts.clear()
+        proposals_saved = 0
+        
+        for record in unproposed:
+            proposal = rules_clf.classify(record)
+            repo.save_proposal(proposal)
+            category_counts[proposal.proposed_category] += 1
+            proposals_saved += 1
 
     return ProposeResult(
         backend=effective_model,
-        proposals_saved=len(unproposed),
+        proposals_saved=proposals_saved,
         category_counts=category_counts,
         bootstrapped_examples=bootstrapped,
         fell_back=fell_back,
@@ -137,27 +152,55 @@ def bootstrap_ml_training_store(
     in-memory training store. The subsequent ML run produces the sole
     proposals in the DB.
     """
-    unproposed = repo.get_files_without_pending_proposals()
+    # Restrict to current scan root
+    unproposed = repo.get_files_without_pending_proposals(root_path=target_base)
     if not unproposed:
         return 0
 
     rules_clf = RuleBasedClassifier(rules_cfg, organize_root=target_base)
     extractor = SimpleContentExtractor()
 
-    triples: list[tuple[str, str, str]] = []
+    # 1. Extract snippets in a single pass
+    records_with_text = []
     for record in unproposed:
         proposal = rules_clf.classify(record)
+        
+        # Only learn from confident rules matches
+        if (
+            proposal.confidence < 0.70 
+            or proposal.proposed_category == rules_cfg.defaults.unmatched_category
+        ):
+            continue
+
         text = extractor.extract_content(record.path)
         if not text:
             continue
-        # Store the category folder NAME (e.g. "Academics"), not the full
-        # parent path. EmbeddingClassifier composes destination paths via
-        # compute_destination_path(..., category_folder, ...), so a full
-        # parent like "<scan>/Academics/<date>" would double up the date.
+            
         rule = rules_cfg.rules.get(proposal.proposed_category)
         category_folder = rule.destination if rule else proposal.proposed_category
-        triples.append((text, proposal.proposed_category, category_folder))
+        records_with_text.append((record.id, text, proposal.proposed_category, category_folder))
 
-    added = training_store.add_pseudolabels(triples)
-    logger.info("Bootstrapped %d pseudo-labeled examples from rules", added)
+    # 2. Batch embed all snippets at once (NEW: Performance fix)
+    if not records_with_text:
+        return 0
+        
+    texts = [t for (_id, t, _cat, _dest) in records_with_text]
+    vectors = training_store.embedder.encode_batch(texts)
+
+    # 3. Add to store with pre-computed vectors (NEW: Bypasses the per-file loop)
+    added = 0
+    for (file_id, text, category, dest), vec in zip(records_with_text, vectors):
+        training_store.examples.append(
+            TrainingExample(
+                text=text,
+                category=category,
+                destination=dest,
+                source="pseudolabel",
+                file_id=file_id,
+                vector=np.asarray(vec, dtype=np.float32),
+            )
+        )
+        added += 1
+
+    logger.info("Bootstrapped %d confident pseudo-labeled examples from rules", added)
     return added

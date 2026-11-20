@@ -1,6 +1,7 @@
 """Thin repository layer providing CRUD operations over SQLite."""
 
 import time
+import os
 from pathlib import Path
 import sqlite3
 from typing import Dict, List, Optional, Union
@@ -97,7 +98,7 @@ class Repository:
                 rows = conn.execute("SELECT * FROM files ORDER BY path").fetchall()
             return [self._row_to_file_record(r) for r in rows]
 
-    def get_files_without_pending_proposals(self) -> List[FileRecord]:
+    def get_files_without_pending_proposals(self, root_path: Optional[str] = None) -> List[FileRecord]:
         """Fetch files that do not currently have an active pending proposal."""
         sql = """
         SELECT f.* FROM files f
@@ -105,8 +106,19 @@ class Repository:
             SELECT 1 FROM proposals p
             WHERE p.file_id = f.id AND p.status = 'pending'
         )
-        ORDER BY f.id ASC;
         """
+        
+        params = []
+        if root_path:
+            # Ensure trailing OS separator to prevent ~/Doc from matching ~/Documents
+            norm_root = str(Path(root_path).resolve())
+            if not norm_root.endswith(os.sep):
+                norm_root += os.sep
+            sql += " AND substr(f.path, 1, ?) = ?"
+            params.extend([len(norm_root), norm_root])
+            
+        sql += " ORDER BY f.id ASC;"
+        
         with self._get_conn() as conn:
             rows = conn.execute(sql).fetchall()
             return [self._row_to_file_record(r) for r in rows]
@@ -315,13 +327,13 @@ class Repository:
     # -------------------------------------------------------------------------
     # Feedback
     # -------------------------------------------------------------------------
-    def save_feedback(self, feedback: FeedbackRecord) -> int:
-        """Log user correction or acceptance decision."""
+    def save_feedback(self, feedback: FeedbackRecord, content_snippet: str = None, category_folder_name: str = None) -> int:
         sql = """
         INSERT INTO feedback (
             file_id, source_path, proposed_category, proposed_destination,
-            actual_category, actual_destination, action, timestamp
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            actual_category, actual_destination, action, timestamp,
+            content_snippet, category_folder_name  -- NEW COLUMNS
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING id;
         """
         with self._get_conn() as conn:
@@ -336,6 +348,8 @@ class Repository:
                     feedback.actual_destination,
                     feedback.action,
                     feedback.timestamp,
+                    getattr(feedback, "content_snippet", None),
+                    getattr(feedback, "category_folder_name", None),
                 ),
             )
             row = cursor.fetchone()
@@ -361,6 +375,8 @@ class Repository:
             actual_destination=row["actual_destination"],
             action=row["action"],
             timestamp=row["timestamp"],
+            content_snippet=row["content_snippet"] if "content_snippet" in row.keys() else None,
+            category_folder_name=row["category_folder_name"] if "category_folder_name" in row.keys() else None,
         )
 
     # -------------------------------------------------------------------------
