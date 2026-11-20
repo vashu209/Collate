@@ -91,3 +91,12 @@ export const api = {
 
   getTaskStatus: (taskId: string) => request<TaskStatus>(`/tasks/${taskId}`),
 };
+
+export async function browseFolder(): Promise<string | null> {
+  const res = await fetch("/browse-folder", {
+    method: "POST", // Forces the browser to not cache
+  });
+  if (!res.ok) throw new Error("Failed to open folder picker");
+  const data = await res.json();
+  return data.path;
+}

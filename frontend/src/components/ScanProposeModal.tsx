@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { AlertCircle, CheckCircle2, Loader2, Play, Search, X } from "lucide-react";
-import { api } from "../api/client";
+import { AlertCircle, CheckCircle2, FolderOpen, Loader2, Play, Search, X } from "lucide-react";
+import { api, browseFolder } from "../api/client";
 import { TaskStatus } from "../types";
 
 interface ScanProposeModalProps {
@@ -26,6 +26,9 @@ export const ScanProposeModal: React.FC<ScanProposeModalProps> = ({
   const [taskStatus, setTaskStatus] = useState<TaskStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // NEW: State for folder browsing
+  const [isBrowsing, setIsBrowsing] = useState(false);
 
   // Poll task progress if active
   useEffect(() => {
@@ -52,6 +55,21 @@ export const ScanProposeModal: React.FC<ScanProposeModalProps> = ({
   }, [taskId, onSuccess]);
 
   if (!mode) return null;
+
+  // NEW: Handle opening the native folder picker
+  const handleBrowse = async () => {
+    try {
+      setIsBrowsing(true);
+      const selectedPath = await browseFolder();
+      if (selectedPath) {
+        setScanPath(selectedPath);
+      }
+    } catch (err) {
+      console.error("Failed to open folder picker", err);
+    } finally {
+      setIsBrowsing(false);
+    }
+  };
 
   const handleStartScan = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -182,22 +200,44 @@ export const ScanProposeModal: React.FC<ScanProposeModalProps> = ({
               <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "6px" }}>
                 Target Folder Path:
               </label>
-              <input
-                type="text"
-                placeholder="e.g. C:/Users/Documents or /path/to/scan"
-                value={scanPath}
-                onChange={(e) => setScanPath(e.target.value)}
-                required
-                style={{
-                  width: "100%",
-                  padding: "8px 10px",
-                  borderRadius: "5px",
-                  border: "1px solid var(--border)",
-                  backgroundColor: "var(--bg-app)",
-                  color: "var(--text-main)",
-                  fontSize: "13px",
-                }}
-              />
+              <div style={{ display: "flex", gap: "8px" }}>
+                <input
+                  type="text"
+                  placeholder="e.g. C:/Users/Documents or /path/to/scan"
+                  value={scanPath}
+                  onChange={(e) => setScanPath(e.target.value)}
+                  required
+                  style={{
+                    flex: 1,
+                    padding: "8px 10px",
+                    borderRadius: "5px",
+                    border: "1px solid var(--border)",
+                    backgroundColor: "var(--bg-app)",
+                    color: "var(--text-main)",
+                    fontSize: "13px",
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={handleBrowse}
+                  disabled={isBrowsing}
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: "5px",
+                    border: "1px solid var(--border)",
+                    backgroundColor: "var(--bg-app)",
+                    color: "var(--text-main)",
+                    cursor: isBrowsing ? "not-allowed" : "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    fontSize: "13px",
+                  }}
+                >
+                  <FolderOpen size={16} />
+                  {isBrowsing ? "Opening..." : "Browse"}
+                </button>
+              </div>
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>

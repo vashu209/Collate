@@ -14,6 +14,7 @@ export default defineConfig({
       "/scan": "http://127.0.0.1:8000",
       "/propose": "http://127.0.0.1:8000",
       "/tasks": "http://127.0.0.1:8000",
+      '/browse-folder': 'http://127.0.0.1:8000',
     },
   },
 });
