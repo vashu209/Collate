@@ -394,6 +394,9 @@ built as two strictly decoupled layers that honor all core safety guarantees:
   proposal generations (`POST /propose`) execute in background worker threads so
   the HTTP connection remains responsive. Progress is polled via
   `GET /tasks/{task_id}`.
+- **Native Folder Picker**: The `POST /browse-folder` endpoint spawns an isolated
+  `tkinter` subprocess to open the OS dialog. This avoids blocking the FastAPI
+  event loop.
 
 ### 2. The Frontend (`frontend`)
 - **React 19 + TypeScript + Vite**: Built with high-density design patterns,
