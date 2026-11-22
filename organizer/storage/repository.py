@@ -120,7 +120,7 @@ class Repository:
         sql += " ORDER BY f.id ASC;"
         
         with self._get_conn() as conn:
-            rows = conn.execute(sql).fetchall()
+            rows = conn.execute(sql,tuple(params)).fetchall()
             return [self._row_to_file_record(r) for r in rows]
 
     def get_duplicates(self, path_prefix: Optional[str] = None) -> Dict[str, List[FileRecord]]:
